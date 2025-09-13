@@ -5,11 +5,11 @@ import re
 import uuid
 from typing import Optional, Dict
 from fastapi import HTTPException, status
+from service.intent.intent_identifier import detect_intent
 
 #Local imports
-from chatbase.log import get_logger
-from chatbase.models.chat_base_model import GLPIWebhookPayload, ChatResponse
-from chatbase.models.booking_service import BookServiceRequest, BookServiceResponse
+from log import get_logger
+from models.chat_base_model import GLPIWebhookPayload, ChatResponse
 
 logger = get_logger()
 
@@ -46,93 +46,18 @@ class ChatBaseProcessor:
         # GLPI payload carries date at the root level
         self.date = getattr(webhook_payload, "date", None)
 
-    SERVICE_KEYWORDS = {
-        "plumber": ["plumber", "plumbing", "nal", "leak", "tap", "geyser", "गीजर", "प्लम्बर"],
-        "electrician": ["electric", "fan", "light", "switch", "wiring", "इलेक्ट्रीशियन"],
-        "carpenter": ["carpenter", "wood", "door", "hinge", "shelf", "कारपेंटर"],
-        "cleaner": ["clean", "deep clean", "सफाई", "क्लीन", "safaai"],
-        "pest_control": ["pest", "cockroach", "termite", "bed bug", "कीड़े", "मक्खी"],
-        "guard": ["guard", "security", "सिक्योरिटी"],
-    }
-
-    def _detect_intent(self, text: str) -> str:
-        t = (text or "").lower()
-        if re.search(r"\b(hi|hello|hey|नमस्ते|नमस्कार)\b", t):
-            return "greeting"
-        if any(k in t for k in ["help", "madad", "सहायता"]):
-            return "help"
-        if any(k in t for k in ["price", "kitna", "rate", "charges", "कितना"]):
-            return "pricing"
-        if any(k in t for k in ["cancel", "रद्द"]):
-            return "cancel_booking"
-        if any(k in t for k in ["reschedule", "time change", "समय बदल"]):
-            return "reschedule_booking"
-        if any(k in t for k in ["status", "kya hua", "कब आएगा"]):
-            return "status_check"
-        # service detection
-        if self._identify_service(t):
-            return "book_service"
-        return "other"
-
-    def _identify_service(self, text: str) -> Optional[str]:
-        t = (text or "").lower()
-        for svc, keys in self.SERVICE_KEYWORDS.items():
-            if any(k in t for k in keys):
-                return svc
-        return None
-
     async def process(self) -> ChatResponse:
         try:
-            intent = self._detect_intent(self.query)
+            intent = detect_intent(self.query)
+
             logger.info(f"Detected intent={intent} for user_id={self.user_id}")
-
-            if intent == "greeting":
-                reply = (
-                    f"Hi {self.user_name}! I can help you book services (plumber, electrician, cleaner, etc.), "
-                    f"check booking status, or cancel/reschedule. What do you need?"
-                )
-                return ChatResponse(reply=reply, action="greeting")
-
-            if intent == "pricing":
-                reply = (
-                    "Approximate pricing: plumber/electrician visits start at ₹199. "
-                    "Final amount depends on the job. Would you like me to book someone?"
-                )
-                return ChatResponse(reply=reply, action="pricing")
-
-            if intent == "status_check":
-                reply = "Please share your booking ID to check the status (e.g., BK-12345)."
-                return ChatResponse(reply=reply, action="status_check")
-
-            if intent == "cancel_booking":
-                reply = "Please share your booking ID to cancel the booking."
-                return ChatResponse(reply=reply, action="cancel_booking")
-
-            if intent == "reschedule_booking":
-                reply = "Please share your booking ID and the new preferred date/time."
-                return ChatResponse(reply=reply, action="reschedule_booking")
-
-            if intent == "book_service":
-                svc = self._identify_service(self.query) or "general"
-                reply = f"Sure. Booking a {svc}. Please share preferred date/time and your flat number."
-                return ChatResponse(reply=reply, action="collect_booking_details", data={"service_type": svc})
-
-            # help/other
-            reply = (
-                "I’m your society assistant. You can say things like: 'Need a plumber today 6 pm', "
-                "'Check status BK-12345', or 'Cancel BK-12345'."
-            )
-            return ChatResponse(reply=reply, action="help")
+            return ChatResponse(reply=intent, action="help")
         except Exception as e:
             logger.exception("Failed to process chat")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Failed to process webhook {str(e)}",
             )
-
-    async def chat_base_processor(self) -> ChatResponse:
-        # backwards-compatible entrypoint name
-        return await self.process()
 
     @staticmethod
     def book_service(

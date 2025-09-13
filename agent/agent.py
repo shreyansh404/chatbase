@@ -26,7 +26,6 @@ class ChatBaseAgent(Agent):
             app_name=self.app_name,
             model=self.model,
             instruction="You are a society assistant on WhatsApp. Help users book plumber/electrician/etc., check status, or cancel.",
-            tools=[ChatBaseProcessor.book_service, ChatBaseProcessor.check_status]
         )
         return agent
 
